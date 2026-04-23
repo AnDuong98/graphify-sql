@@ -54,6 +54,9 @@ all = ["mcp", "neo4j", "pypdf", "html2text", "watchdog", "graspologic; python_ve
 
 [project.scripts]
 graphify = "graphify.__main__:main"
+graphify-local = "graphify.local:main"
+graphify-redact = "graphify.redact:main"
+graphify-dehash = "graphify.dehash:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

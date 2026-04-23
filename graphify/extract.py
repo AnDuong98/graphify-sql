@@ -649,6 +649,29 @@ _SWIFT_CONFIG = LanguageConfig(
 )
 
 
+# ── PL/SQL ────────────────────────────────────────────────────────────────────
+
+_PLSQL_CONFIG = LanguageConfig(
+    ts_module="tree_sitter_plsql",
+    ts_language_fn="language",
+    class_types=frozenset({"create_package", "create_package_body"}),
+    function_types=frozenset({
+        "procedure_definition", "function_definition",
+        "procedure_declaration", "function_declaration",
+    }),
+    import_types=frozenset(),
+    call_types=frozenset({"ref_call"}),
+    call_function_field="",
+    name_fallback_child_types=("identifier",),
+    body_fallback_child_types=("body",),
+    function_boundary_types=frozenset({"procedure_definition", "function_definition"}),
+)
+
+
+def extract_plsql(path: Path) -> dict:
+    return _extract_generic(path, _PLSQL_CONFIG)
+
+
 # ── Generic extractor ─────────────────────────────────────────────────────────
 
 def _extract_generic(path: Path, config: LanguageConfig) -> dict:
@@ -807,6 +830,10 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
             body = _find_body(node, config)
             if body:
                 for child in body.children:
+                    walk(child, parent_class_nid=class_nid)
+            elif config.ts_module == "tree_sitter_plsql":
+                # PL/SQL packages have no wrapping body node — procedures/functions are direct children
+                for child in node.children:
                     walk(child, parent_class_nid=class_nid)
             return
 
@@ -1025,6 +1052,14 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         callee_name = _read_text(name_node, source)
+            elif config.ts_module == "tree_sitter_plsql" and node.type == "ref_call":
+                # PL/SQL: ref_call → referenced_element → last identifier is the callee
+                ref_el = node.children[0] if node.children else None
+                if ref_el and ref_el.type == "referenced_element":
+                    for child in reversed(ref_el.children):
+                        if child.type == "identifier":
+                            callee_name = _read_text(child, source)
+                            break
             elif config.ts_module == "tree_sitter_cpp":
                 # C++: function field, then field_expression/qualified_identifier
                 func_node = node.child_by_field_name(config.call_function_field) if config.call_function_field else None
@@ -3137,6 +3172,13 @@ def extract(paths: list[Path], cache_root: Path | None = None) -> dict:
         ".dart": extract_dart,
         ".v": extract_verilog,
         ".sv": extract_verilog,
+        ".sql": extract_plsql,
+        ".pck": extract_plsql,
+        ".pks": extract_plsql,
+        ".pkb": extract_plsql,
+        ".plb": extract_plsql,
+        ".prc": extract_plsql,
+        ".fnc": extract_plsql,
     }
 
     total = len(paths)
@@ -3227,6 +3269,7 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
         ".rb", ".cs", ".kt", ".kts", ".scala", ".php", ".swift",
         ".lua", ".toc", ".zig", ".ps1",
         ".m", ".mm",
+        ".sql", ".pck", ".pks", ".pkb", ".plb", ".prc", ".fnc",
     }
     from graphify.detect import _load_graphifyignore, _is_ignored
     ignore_root = root if root is not None else target
